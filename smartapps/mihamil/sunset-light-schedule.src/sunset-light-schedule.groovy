@@ -26,9 +26,9 @@ definition(
 
 preferences {
 
-    section ("Where are you?"){
-    	input "zipcode", "string", title: "Zip Code", required: true
-    }
+    //section ("Where are you?"){
+    //	input "zipcode", "string", title: "Zip Code", required: true
+    //}
     section("Turn on these lights"){
     	input "lights", "capability.switch", title: "Lights", multiple: true, required: true
     }
@@ -63,6 +63,8 @@ preferences {
                                                                              "23:00:00.000": "11:00 PM", "23:30:00.000": "11:30 PM",
                                                                            "Sunrise":"Sunrise", "Sunset":"Sunset"]
                                                                            
+		input "fromTimeDelay", "number", title: "+ minutes", required: false
+                                                                           
          input "toTime", "enum", title: "To", required: true, options: [ "00:00:00.000": "12:00 AM", "00:30:00.000": "12:30 AM", 
                                                                          "01:00:00.000": "1:00 AM" , "01:30:00.000": "1:30 AM" , 
                                                                          "02:00:00.000": "2:00 AM" , "02:30:00.000": "2:30 AM" , 
@@ -88,9 +90,10 @@ preferences {
                                                                          "22:00:00.000": "10:00 PM", "22:30:00.000": "10:30 PM", 
                                                                          "23:00:00.000": "11:00 PM", "23:30:00.000": "11:30 PM",
                                                                            "Sunrise":"Sunrise", "Sunset":"Sunset"]
+	input "toTimeDelay", "number", title: "+ minutes", required: false
                                                                            
         
-     
+     input "pushNotifications", "bool", title: "Enable Push Notifications"
      
     }
 }
@@ -109,42 +112,73 @@ def updated() {
 }
 
 def initialize() {
-	// TODO: subscribe to attributes, devices, locations, etc.
-    if(fromTime == "Sunset" || toTime == "Sunset"){
-    	log.debug "Sunset Subscription Created"
-    	subscribe(location, "sunset", sunsetHandler)
-    } else {
-    
+
+	//Schedule the lights on check
+    if(fromTime == "Sunet"){
+    	subscribe(location, "sunset", lightsOnDelay)
     }
-    if(fromTime == "Sunrise" || toTime == "Sunrise"){
-    	log.debug "Sunrise Subscription Created"
-    	subscribe(location, "sunrise", sunriseHandler)
+    if(fromTime == "Sunrise"){
+    	subscribe(location, "sunrise", lightsOnDelay)
     }
-    
     if(fromTime != "Sunrise" && fromTime != "Sunset"){
 		//Schedule to turn on lights
-        schedule("2017-1-1T" + fromTime + "-0600", lightsOnSchedule)
+        schedule("2017-1-1T" + fromTime + "-0600", lightsOnDelay)
         log.debug "Lights On Scheduled"
     }
     
+    
+    //Schedule the lights off. Regardless of current state. If the toTime is hit, turn off the lights.
+    if( toTime == "Sunset"){
+    	log.debug "Sunset Subscription Created"
+    	subscribe(location, "sunset", lightsOffDelay)
+    }
+    if(toTime == "Sunrise"){
+    	log.debug "Sunrise Subscription Created"
+    	subscribe(location, "sunrise", lightsOffDelay)
+    }
     if(toTime != "Sunrise" && toTime != "Sunset"){
 		//Schedule to turn off lights    
-        schedule("2017-1-1T" + toTime + "-0600", lightsOffSchedule)
+        schedule("2017-1-1T" + toTime + "-0600", lightsOffDelay)
         log.debug "Lights Off Scheduled"
     }
     
-    
-    
-    
-    
-    
-    // Presence Changed Handlers
+     
+    // Subscribe to presence changes
     subscribe(presenceDevices, "presence", presenceEventHandler)
  
 }
 
-// TODO: implement event handlers
 
+
+// Lights on and off controller.
+// Not much meaning now, but pulled out in case there needs to be some global logic later
+def lightsOff() {
+	lights.off()
+    if(pushNotifications){
+    	sendPush("Smart lights have turned off")
+    }
+}
+
+def lightsOn() {
+	lights.on()
+    if(pushNotifications){
+    	sendPush("Smart lights have turned on")
+    }
+}
+
+def lightsOffDelay(){
+	def currentToDelay = findToTimeDelay()
+    log.debug("Turning lights off in $currentToDelay minutes")
+	runIn(currentToDelay * 60, "lightsOff", [overwrite: false])
+}
+def lightsOnDelay(){
+	def currentFromDelay = findFromTimeDelay()
+    log.debug("Turning lights on in $currentFromDelay minutes")
+	runIn(currentFromDelay * 60, "smartTurnLightsOn", [overwrite: false])
+}
+
+
+//Sunrise and Sunset event handlers
 def sunsetHandler(evt){
 	log.debug "Sunset Event Fired"
     if(fromTime == "Sunset"){
@@ -155,50 +189,25 @@ def sunsetHandler(evt){
     }
 }
 
-def sunriseHandler(evt){
-	log.debug "Sunrise Event Fired"
-    if(fromTime == "Sunrise"){
-    	lights.on()
-    }
-    if(toTime == "Sunrise"){
-    	lights.off()
-    }
-}
+//Presence Event Handlers
 
 def presenceEventHandler(evt){
 	log.debug "Presence Event Fired"
     
 	if (evt.value == "not present") {
+    	//Someone left, check if everyone is gone and turn lights on if necessary
        log.debug "checking if everyone is away"
         if (everyoneIsAway()) {
-        	
             log.debug "starting sequence"
-            runIn(findFalseAlarmThreshold() * 60, "takeAction", [overwrite: false])
-            
+            runIn(findFalseAlarmThreshold() * 60, "smartTurnLightsOn", [overwrite: false])
         }
-        
-    }
-    else {
-        lightsOffPresence()
+    } else {
+        log.debug "Someone arrived"
+        runIn(findFalseAlarmThreshold() * 60, "lightsOff", [overwrite: false])
     }
 }
 
-def lightsOnPresence(){
-	
-}
-
-def lightsOffPresence(){
-	log.debug "Someone arrived"
-    
-	runIn(findFalseAlarmThreshold() * 60, "lightsOff", [overwrite: false])
-}
-def lightsOff() {
-	if(!everyoneIsAway()){
-        log.debug "Someone is here, turning off lights"
-        lights.off()
-    }
-}
-def lightsOnSchedule(){
+def isInsideLightsOnSchedule(){
 	//fromTime and toTime are both string values similar to 13:30:00.000 or "Sunrise" or "Sunset"
 	def loft = fromTime
     def lott = toTime
@@ -230,21 +239,68 @@ def lightsOnSchedule(){
     log.debug "LOFT: $loft, LOTT: $lott, DATE: $now"
 	def between = true
     between = timeOfDayIsBetween(loft, lott, new Date(), location.timeZone)
-    if(between){
-    	log.debug "Within lights on schedule, turn on"
-    	lights.on()
-    } else {
-    	log.debug "Not within lights on schedule. Leaving light off"
-    }
+    
+    return between
+    
+    //if(between){
+   // 	log.debug "Within lights on schedule, turn on"
+   // 	lights.on()
+    //} else {
+    //	log.debug "Not within lights on schedule. Leaving light off"
+    //}
 	
 }
 
-def lightsOffSchedule(){
-	lights.off()	
+def smartTurnLightsOn() {
+    if (everyoneIsAway()) {
+        def threshold = 1000 * 60 * findFalseAlarmThreshold() - 1000
+        def awayLongEnough = presenceDevices.findAll { person ->
+            def presenceState = person.currentState("presence")
+            def elapsed = now() - presenceState.rawDateCreated.time
+            elapsed >= threshold
+        }
+        log.debug "Found ${awayLongEnough.size()} out of ${presenceDevices.size()} person(s) who were away long enough"
+        if (awayLongEnough.size() == presenceDevices.size()) {
+           log.debug "Everyone has been away long enough"
+           if(isInsideLightsOnSchedule()){
+           		log.debug "We are betweent he lights on schedule"
+               	lightsOn()         
+           }
+        } else {
+            log.debug "not everyone has been away long enough; doing nothing"
+        }
+    } else {
+        log.debug "not everyone is away; doing nothing"
+    }
 }
 
-def everyoneIsAway(){
-	def result = true
+
+private findFalseAlarmThreshold() {
+    // In Groovy, the return statement is implied, and not required.
+    // We check to see if the variable we set in the preferences
+    // is defined and non-empty, and if it is, return it.  Otherwise,
+    // return our default value of 10
+    (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold : 1
+}
+
+private findFromTimeDelay() {
+    // In Groovy, the return statement is implied, and not required.
+    // We check to see if the variable we set in the preferences
+    // is defined and non-empty, and if it is, return it.  Otherwise,
+    // return our default value of 10
+    (fromTimeDelay != null && fromTimeDelay != "" && fromTimeDelay >= 0) ? fromTimeDelay : 0
+}
+
+private findToTimeDelay() {
+    // In Groovy, the return statement is implied, and not required.
+    // We check to see if the variable we set in the preferences
+    // is defined and non-empty, and if it is, return it.  Otherwise,
+    // return our default value of 10
+    (toTimeDelay != null && toTimeDelay != "" && toTimeDelay >= 0) ? toTimeDelay : 0
+}
+
+private everyoneIsAway() {
+    def result = true
     // iterate over our people variable that we defined
     // in the preferences method
     for (person in presenceDevices) {
@@ -257,35 +313,4 @@ def everyoneIsAway(){
     }
     log.debug "everyoneIsAway: $result"
     return result
-}
-
-def takeAction() {
-    if (everyoneIsAway()) {
-        def threshold = 1000 * 60 * findFalseAlarmThreshold() - 1000
-        def awayLongEnough = presenceDevices.findAll { person ->
-            def presenceState = person.currentState("presence")
-            def elapsed = now() - presenceState.rawDateCreated.time
-            elapsed >= threshold
-        }
-        log.debug "Found ${awayLongEnough.size()} out of ${presenceDevices.size()} person(s) who were away long enough"
-        if (awayLongEnough.size() == presenceDevices.size()) {
-           log.debug "Everyone has been away long enough"
-           //If time is between fromTime and toTime
-                lightsOnSchedule()
-                
-           
-        } else {
-            log.debug "not everyone has been away long enough; doing nothing"
-        }
-    } else {
-        log.debug "not everyone is away; doing nothing"
-    }
-}
-
-private findFalseAlarmThreshold() {
-    // In Groovy, the return statement is implied, and not required.
-    // We check to see if the variable we set in the preferences
-    // is defined and non-empty, and if it is, return it.  Otherwise,
-    // return our default value of 10
-    (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold : 1
 }
