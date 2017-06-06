@@ -173,7 +173,11 @@ def lightsOffDelay(){
 	runIn(currentToDelay * 60, "lightsOff", [overwrite: false])
 }
 def lightsOff() {
-	lights.off()
+	lights.each{ light -> 
+    	light.off()
+        log.debug "${light} Off"
+    }
+	
     log.debug "Lights Off"
     if(pushNotifications){
     	sendPush("Security lights have turned off")
@@ -189,7 +193,10 @@ def lightsOnDelay(){
 	runIn(currentFromDelay * 60, "checkScheduleAndTurnOnLights", [overwrite: false])
 }
 def lightsOn() {
-	lights.on()
+	lights.each{ light -> 
+    	light.on()
+        log.debug "${light} On"
+    }
     log.debug "Lights On"
     if(pushNotifications){
     	sendPush("Security lights have turned on")
@@ -247,19 +254,26 @@ def checkScheduleAndTurnOnLights() {
         }
         
         //log.debug "Found ${awayLongEnough.size()} out of ${presenceDevices.size()} person(s) who were away long enough"
-        
-        if (awayLongEnough.size() == presenceDevices.size()) {
-          // log.debug "Everyone has been away long enough"
-           if(isInsideLightsOnSchedule()){
-           		//log.debug "We are between the lights on schedule"
-               	lightsOn()         
-           }
+        if (presenseDevices != null){
+            if (awayLongEnough.size() == presenceDevices.size()) {
+              // log.debug "Everyone has been away long enough"
+               if(isInsideLightsOnSchedule()){
+                    //log.debug "We are between the lights on schedule"
+                    lightsOn()         
+               }
+            } else {
+                //Someone has not been away long enough.
+                //Reschedule this function for 1 minute from now.
+                //log.debug "not everyone has been away long enough; doing nothing, checking again in 1 minute"
+                runIn(60, "checkScheduleAndTurnOnLights", [overwrite: false])
+            }
         } else {
-        	//Someone has not been away long enough.
-            //Reschedule this function for 1 minute from now.
-            //log.debug "not everyone has been away long enough; doing nothing, checking again in 1 minute"
-            runIn(60, "checkScheduleAndTurnOnLights", [overwrite: false])
+        	if(isInsideLightsOnSchedule()){
+                    //log.debug "We are between the lights on schedule"
+                    lightsOn()         
+               }
         }
+        
     } else {
         //log.debug "not everyone is away; doing nothing"
     }
