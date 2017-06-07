@@ -64,7 +64,7 @@ preferences {
                                                                              "21:00:00.000": "9:00 PM" , "21:30:00.000": "9:30 PM" , 
                                                                              "22:00:00.000": "10:00 PM", "22:30:00.000": "10:30 PM", 
                                                                              "23:00:00.000": "11:00 PM", "23:30:00.000": "11:30 PM",
-                                                                           "Sunrise":"Sunrise", "Sunset":"Sunset"]
+                                                                           "sunrise":"Sunrise", "sunset":"Sunset"]
                                                                            
 		input "fromTimeDelay", "number", title: "+ minutes", required: false
                                                                            
@@ -121,6 +121,8 @@ def initialize() {
     	sendNotificationEvent("Location services is not enabled. UTC timezone used.")
     	tz = TimeZone.getTimeZone("UTC"); 
     }
+    log.debug tz.lastRule
+    
     
     def now = new Date()
     sendNotificationEvent("${now}")
@@ -135,7 +137,7 @@ def initialize() {
     if(fromTime != "sunrise" && fromTime != "sunset"){
 		//Schedule to turn on lights
         log.debug tz
-        def fdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss.SSS Z", "2017-01-01 ${fromTime} -0600")
+        def fdate_schedule = Date.parse('yyyy-MM-dd hh:mm:ss.SSS Z', new Date().format("yyyy-MM-dd ${fromTime} Z",location.timeZone))
         log.debug fdate_schedule
         sendNotificationEvent("From Schedule created with ${fdate_schedule}")
         schedule(fdate_schedule, lightsOnDelay)
@@ -154,7 +156,7 @@ def initialize() {
     }
     if(toTime != "sunrise" && toTime != "sunset"){
 		//Schedule to turn off lights    
-        def tdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss.SSS Z", "2017-01-01 ${fromTime} -0600")
+        def tdate_schedule = Date.parse('yyyy-MM-dd hh:mm:ss.SSS Z', new Date().format("yyyy-MM-dd ${toTime} Z",location.timeZone))
         log.debug tdate_schedule
         sendNotificationEvent("To Schedule created with ${tdate_schedule}")
         schedule(tdate_schedule, lightsOffDelay)
@@ -339,22 +341,22 @@ def isInsideLightsOnSchedule(){
 
 	def localSun = getSunriseAndSunset()
     
-    if(fromTime == "Sunrise"){
+    if(fromTime == "sunrise"){
     	//Have also tried localSun.sunrise
     	//loft = location.currentValue("sunriseTime")
         loft = localSun.sunrise
     }
-    if(fromTime == "Sunset"){
+    if(fromTime == "sunset"){
     	//Have also tried localSun.sunset
     	//loft = location.currentValue("sunsetTime")
         loft = localSun.sunset
     }
-    if(toTime == "Sunrise"){
+    if(toTime == "sunrise"){
     	//Have also tried localSun.sunrise
     	//lott = location.currentValue("sunriseTime")
         lott = localSun.sunrise
     }
-    if(toTime == "Sunset"){
+    if(toTime == "sunset"){
     	//Have also tried localSun.sunset
     	//lott = location.currentValue("sunsetTime")
         lott = localSun.sunset
