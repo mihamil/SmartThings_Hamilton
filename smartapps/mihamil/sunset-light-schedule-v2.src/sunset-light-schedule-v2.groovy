@@ -116,13 +116,14 @@ def updated() {
 
 def initialize() {
 	 def tz = location.timeZone
+     sendNotificationEvent("Timezone ${tz}")
     if(tz == null){
     	sendNotificationEvent("Location services is not enabled. UTC timezone used.")
     	tz = TimeZone.getTimeZone("UTC"); 
     }
     
     def now = new Date()
-    log.debug now
+    sendNotificationEvent("${now}")
     
 	//Schedule the lights on check
     if(fromTime == "sunset"){
@@ -133,8 +134,10 @@ def initialize() {
     }
     if(fromTime != "sunrise" && fromTime != "sunset"){
 		//Schedule to turn on lights
-        def fdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss", "2017-01-01 ${fromTime}")
-        
+        log.debug tz
+        def fdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss.SSS Z", "2017-01-01 ${fromTime} -0600")
+        log.debug fdate_schedule
+        sendNotificationEvent("From Schedule created with ${fdate_schedule}")
         schedule(fdate_schedule, lightsOnDelay)
         //log.debug "Lights On Scheduled"
     }
@@ -151,8 +154,9 @@ def initialize() {
     }
     if(toTime != "sunrise" && toTime != "sunset"){
 		//Schedule to turn off lights    
-        def tdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss", "2017-01-01 ${fromTime}")
-        
+        def tdate_schedule = Date.parse("yyyy-MM-dd hh:mm:ss.SSS Z", "2017-01-01 ${fromTime} -0600")
+        log.debug tdate_schedule
+        sendNotificationEvent("To Schedule created with ${tdate_schedule}")
         schedule(tdate_schedule, lightsOffDelay)
         //log.debug "Lights Off Scheduled"
     }
@@ -160,7 +164,7 @@ def initialize() {
      
     // Subscribe to presence changes
     subscribe(presenceDevices, "presence", presenceEventHandler)
- 
+ 	sendNotificationEvent("Installation Complete")
 }
 
 
@@ -168,11 +172,12 @@ def initialize() {
 // Lights on and off controller.
 // Not much meaning now, but pulled out in case there needs to be some global logic later
 def lightsOffDelay(){
+	sendNotificationEvent("Lights off Delay scheduled for ${currentToDelay} minutes")
 	def currentToDelay = findToTimeDelay()
     //log.debug("Turning lights off in $currentToDelay minutes")
 	runIn(currentToDelay * 60, "lightsOff", [overwrite: false])
 }
-def lightsOff() {
+def lightsOff(){
 	lights.each{ light -> 
     	light.off()
         log.debug "${light} Off"
@@ -188,11 +193,12 @@ def lightsOff() {
 
 
 def lightsOnDelay(){
+	sendNotificationEvent("Lights On Scheduled for ${currentFromDelay} minutes.")
 	def currentFromDelay = findFromTimeDelay()
     //log.debug("Turning lights on in $currentFromDelay minutes")
 	runIn(currentFromDelay * 60, "checkScheduleAndTurnOnLights", [overwrite: false])
 }
-def lightsOn() {
+def lightsOn(){
 	lights.each{ light -> 
     	light.on()
         log.debug "${light} On"
@@ -223,15 +229,18 @@ def lightsOn() {
 //Presence Event Handlers
 
 def presenceEventHandler(evt){
-	log.debug "Presence Event Fired"
+	sendNotificationEvent( "Presense Event Fired")
     
 	if (evt.value == "not present") {
+    	sendNotificationEvent( "Someone Left")
     	//Someone left, check if everyone is gone and turn lights on if necessary
        //log.debug "checking if everyone is away"
         if (everyoneIsAway()) {
+        	
             runIn(findFalseAlarmThreshold() * 60, "checkScheduleAndTurnOnLights", [overwrite: false])
         }
     } else {
+    	sendNotificationEvent("Someone Arrived")
         //log.debug "Someone arrived"
         runIn(findFalseAlarmThreshold() * 60, "lightsOff", [overwrite: false])
     }
@@ -239,7 +248,7 @@ def presenceEventHandler(evt){
 
 
 
-def checkScheduleAndTurnOnLights() {
+def checkScheduleAndTurnOnLights(){
     if (everyoneIsAway()) {
     	//Everyone is away, Get a count of presense devices that have been away long enough to trigger.
         def threshold = 1000 * 60 * findFalseAlarmThreshold() - 1000
@@ -282,7 +291,7 @@ def checkScheduleAndTurnOnLights() {
 
 
 //Helpers
-private findFalseAlarmThreshold() {
+private findFalseAlarmThreshold(){
     // In Groovy, the return statement is implied, and not required.
     // We check to see if the variable we set in the preferences
     // is defined and non-empty, and if it is, return it.  Otherwise,
@@ -290,7 +299,7 @@ private findFalseAlarmThreshold() {
     (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold : 1
 }
 
-private findFromTimeDelay() {
+private findFromTimeDelay(){
     // In Groovy, the return statement is implied, and not required.
     // We check to see if the variable we set in the preferences
     // is defined and non-empty, and if it is, return it.  Otherwise,
@@ -298,7 +307,7 @@ private findFromTimeDelay() {
     (fromTimeDelay != null && fromTimeDelay != "" && fromTimeDelay >= 0) ? fromTimeDelay : 0
 }
 
-private findToTimeDelay() {
+private findToTimeDelay(){
     // In Groovy, the return statement is implied, and not required.
     // We check to see if the variable we set in the preferences
     // is defined and non-empty, and if it is, return it.  Otherwise,
@@ -326,6 +335,7 @@ def isInsideLightsOnSchedule(){
 	//fromTime and toTime are both string values similar to 13:30:00.000 or "Sunrise" or "Sunset"
 	def loft = fromTime
     def lott = toTime
+    log.debug "LOFT: ${loft}    LOTT: ${lott}    NOW: ${new Date()}"
 
 	def localSun = getSunriseAndSunset()
     
@@ -350,16 +360,13 @@ def isInsideLightsOnSchedule(){
         lott = localSun.sunset
     }
     def now = new Date()
-    //log.debug "LOFT: $loft, LOTT: $lott, DATE: $now"
+    
 	def between = true
     
     
-    def tz = location.timeZone
-    if(tz == null){
-    	tz = TimeZone.getTimeZone("UTC"); 
-    }
-    between = timeOfDayIsBetween(loft, lott, new Date(), tz)
-    
+    between = timeOfDayIsBetween(loft, lott, new Date(), location.timeZone)
+    log.debug between
+    sendNotificationEvent("In Schedule: ${between}")
     return between
     
     //if(between){
